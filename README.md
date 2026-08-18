@@ -8,6 +8,17 @@ through its public REST API and its Prometheus `/metrics` endpoint.
 * **Requires:** Checkmk 2.5.0 or newer
 * **License:** GPL-2.0
 
+## Compatibility
+
+| Checkmk | Package | Status |
+| --- | --- | --- |
+| 2.5.0 and newer | 2.0.0 (this branch) | Maintained |
+| 2.4.0p15 to 2.4.x | 1.0.1 | Superseded — see [docs/checkmk-2.4.md](docs/checkmk-2.4.md) |
+
+This branch does not load on 2.4: it is built against `cmk.graphing.v1` and
+the 2.5 rulesets API. The 2.4 build and its known problems are documented
+separately.
+
 ## What it monitors
 
 The special agent emits eleven agent sections, from which the following
@@ -101,6 +112,7 @@ n8n_cmk/
   special_agents/     the agent itself
 packaging/manifest.template   MKP manifest, version substituted at build time
 scripts/build.sh              deploy sources into a site and build the MKP
+docs/checkmk-2.4.md           the superseded 2.4 build (1.0.1) and how to migrate
 ```
 
 ## Building

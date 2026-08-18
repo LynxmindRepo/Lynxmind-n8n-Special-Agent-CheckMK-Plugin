@@ -59,8 +59,9 @@ Correctness pass over the checks and the agent. No new services.
 
 ## 2.1.1
 
-Migration to Checkmk 2.5 and repair of the pre-existing plugin. See the
-package history for details:
+Migration to Checkmk 2.5 and repair of the pre-existing plugin — the first
+release that does not run on 2.4. Everything below is what 1.0.1 got wrong;
+see [docs/checkmk-2.4.md](docs/checkmk-2.4.md) for the 2.4 build itself.
 
 * `SimpleLevels` parameters (`("fixed", (w, c))`) were unpacked directly by the
   checks, raising `TypeError` for active workflows.
