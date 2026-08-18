@@ -1,0 +1,4 @@
+# The plugin is deployed on Linux Checkmk sites. CRLF in the libexec entry
+# point would break its shebang, so keep everything LF in the working tree.
+* text=auto eol=lf
+*.mkp binary
