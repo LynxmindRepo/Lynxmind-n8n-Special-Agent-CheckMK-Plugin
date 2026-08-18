@@ -1,8 +1,12 @@
 # Changelog
 
-## 2.1.2 — 2026-08-18
+## 2.0.0 — 2026-08-18
 
 Correctness pass over the checks and the agent. No new services.
+
+> The package was renumbered at this release: the work described below
+> was previously published as 2.1.2. Entries under it keep their original
+> numbers, so this heading sorts below them.
 
 ### Fixed
 

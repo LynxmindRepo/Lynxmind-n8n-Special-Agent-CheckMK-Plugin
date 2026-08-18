@@ -4,7 +4,7 @@ Checkmk extension package (MKP) that monitors an [n8n](https://n8n.io) instance
 through its public REST API and its Prometheus `/metrics` endpoint.
 
 * **Package name:** `n8n`
-* **Version:** 2.1.2
+* **Version:** 2.0.0
 * **Requires:** Checkmk 2.5.0 or newer
 * **License:** GPL-2.0
 
@@ -33,11 +33,11 @@ services are discovered:
 
 ## Installation
 
-Upload `n8n-2.1.2.mkp` under *Setup → Extension packages*, or from the command
+Upload `n8n-2.0.0.mkp` under *Setup → Extension packages*, or from the command
 line as the site user:
 
 ```bash
-mkp add n8n-2.1.2.mkp && mkp enable n8n 2.1.2
+mkp add n8n-2.0.0.mkp && mkp enable n8n 2.0.0
 ```
 
 Then create the host and the rule:
