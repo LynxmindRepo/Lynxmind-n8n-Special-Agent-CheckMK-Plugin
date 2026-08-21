@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.0.1 — 2026-08-21
+
+* **Executions were silently capped at ~250.** `/api/v1/executions` returns
+  newest-first and n8n caps `limit` at 250 server-side no matter what is
+  requested. A single unpaginated request was all every section derived from
+  executions ever saw, so any instance running more than ~250 executions
+  since the agent was first activated had its 24h/8h stats, failure counts
+  and "recent failures" list silently frozen at whatever fit on that one
+  page. Reported by a user running 10-12 workflows at 1-5 minute intervals
+  (3,000+ executions/day).
+
+  Fixed with a shared paginating fetch that follows n8n's `nextCursor` until
+  it runs out, or until a page's oldest execution predates the agent's
+  activation timestamp - whichever comes first, so a fresh install doesn't
+  page needlessly. A 50-page (~12,500 execution) safety cap prevents runaway
+  API calls; past that the run logs a warning and reports on what it did
+  fetch rather than hang. That cap is a known, deliberate ceiling, not a
+  full fix: because "since activation" stats are recomputed from a full
+  re-fetch every run rather than an incrementally persisted counter, an
+  instance old enough to have accumulated more than ~12,500 executions since
+  its agent was first activated will still see truncated lifetime totals.
+  24h/8h stats are unaffected at any age, since they only need a shallow
+  page of recent history.
+
 ## 2.0.0 — 2026-08-18
 
 Correctness pass over the checks and the agent. No new services.

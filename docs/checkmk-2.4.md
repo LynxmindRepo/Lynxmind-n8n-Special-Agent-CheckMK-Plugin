@@ -62,7 +62,7 @@ Both packages are named `n8n`, so the site holds one at a time.
 
 ```bash
 mkp disable n8n 1.0.1 && mkp remove n8n 1.0.1
-mkp add n8n-2.0.0.mkp && mkp enable n8n 2.0.0
+mkp add n8n-2.0.1.mkp && mkp enable n8n 2.0.1
 cmk -II <host> && cmk -R
 ```
 

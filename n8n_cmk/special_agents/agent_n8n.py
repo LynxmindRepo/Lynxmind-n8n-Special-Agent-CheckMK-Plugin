@@ -176,6 +176,83 @@ class N8nMonitor:
             return self.workflow_names.get(str(workflow_id)) or f"id:{workflow_id}"
         return "unknown"
 
+    def _auth_headers(self) -> Dict:
+        headers = {'User-Agent': 'n8n-monitor-agent/1.0'}
+        if self.api_key:
+            headers['X-N8N-API-KEY'] = self.api_key
+        elif self.username and self.password:
+            import base64
+            credentials = base64.b64encode(f"{self.username}:{self.password}".encode()).decode()
+            headers['Authorization'] = f'Basic {credentials}'
+        return headers
+
+    async def _fetch_all_executions(
+        self, activation_time: Optional[datetime] = None, max_pages: int = 50
+    ) -> List[Dict]:
+        """Page through /api/v1/executions, newest first, until exhausted.
+
+        n8n caps ``limit`` at 250 server-side no matter what is requested, so
+        a single request only ever sees the newest ~250 executions. On a busy
+        instance (thousands/day) every stat derived from a single page was
+        silently truncated to the last couple of hours. Executions come back
+        newest-first, so paging stops as soon as a page's oldest entry
+        predates ``activation_time`` - no need to page all the way to
+        n8n's own end of history.
+        """
+        headers = self._auth_headers()
+        url = f"{self.base_url}/api/v1/executions"
+        all_executions: List[Dict] = []
+        cursor = None
+
+        for page_num in range(max_pages):
+            params = {'limit': 250, 'includeData': 'false'}
+            if cursor:
+                params['cursor'] = cursor
+
+            async with self.session.get(url, headers=headers, params=params) as response:
+                if response.status != 200:
+                    raise RuntimeError(f"executions API returned HTTP {response.status}")
+                if 'application/json' not in response.headers.get('content-type', ''):
+                    raise RuntimeError("executions API returned a non-JSON response")
+                payload = await response.json()
+
+            page = payload.get('data', [])
+            all_executions.extend(page)
+            cursor = payload.get('nextCursor')
+
+            if not cursor:
+                break
+            if activation_time and page:
+                oldest_started_at = page[-1].get('startedAt', '')
+                try:
+                    ts = oldest_started_at.replace('Z', '+00:00')
+                    if datetime.fromisoformat(ts) < activation_time:
+                        break
+                except (ValueError, AttributeError):
+                    pass
+        else:
+            # ponytail: hard cap at 50 pages / 12500 executions so a
+            # multi-year-old activation timestamp can't make this loop
+            # forever. Fine for the "since we started watching" numbers this
+            # agent reports, wrong for a true unbounded lifetime counter -
+            # that needs an incrementally persisted counter, not a full
+            # re-fetch every run. Raise max_pages if 4-5 days of executions
+            # (at a few thousand/day) stops being enough headroom.
+            logger.warning(
+                f"Stopped paging executions at the {max_pages}-page safety cap "
+                f"({len(all_executions)} executions); older history since "
+                f"activation may be missing from this run's stats."
+            )
+
+        if activation_time:
+            original_count = len(all_executions)
+            all_executions = filter_by_activation_time(all_executions, activation_time)
+            logger.info(
+                f"Filtered executions: {original_count} -> {len(all_executions)} "
+                f"(after activation: {activation_time.isoformat()})"
+            )
+
+        return all_executions
 
     async def __aenter__(self):
         connector = aiohttp.TCPConnector(ssl=self.verify_ssl)
@@ -292,60 +369,17 @@ class N8nMonitor:
         Filtra apenas execuções após o timestamp de ativação.
         """
         try:
-            # Use API v1 endpoint with proper parameters
-            url = f"{self.base_url}/api/v1/executions"
-            params = {
-                'limit': 250,  # Maximum allowed
-                'includeData': 'false'  # Don't include full execution data (too large)
+            executions_list = await self._fetch_all_executions(activation_time)
+            logger.info(f"Successfully retrieved {len(executions_list)} executions")
+
+            return {
+                "endpoint": "executions",
+                "url": f"{self.base_url}/api/v1/executions",
+                "status_code": 200,
+                "available": True,
+                "executions": {"data": executions_list},
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
-            
-            logger.debug(f"Accessing executions API: {url} with params: {params}")
-            
-            headers = {'User-Agent': 'n8n-monitor-agent/1.0'}
-            if self.api_key:
-                headers['X-N8N-API-KEY'] = self.api_key
-                logger.debug("Using API Key authentication for executions")
-            elif self.username and self.password:
-                import base64
-                credentials = base64.b64encode(f"{self.username}:{self.password}".encode()).decode()
-                headers['Authorization'] = f'Basic {credentials}'
-                logger.debug("Using Basic authentication for executions")
-            
-            async with self.session.get(url, headers=headers, params=params) as response:
-                logger.debug(f"Executions API response status: {response.status}")
-                
-                if response.status == 200:
-                    content_type = response.headers.get('content-type', '')
-                    if 'application/json' in content_type:
-                        executions_data = await response.json()
-                        executions_list = executions_data.get('data', [])
-                        
-                        # Filtrar por timestamp de ativação
-                        if activation_time:
-                            original_count = len(executions_list)
-                            executions_list = filter_by_activation_time(executions_list, activation_time)
-                            logger.info(f"Filtered executions: {original_count} -> {len(executions_list)} (after activation: {activation_time.isoformat()})")
-                        
-                        executions_data['data'] = executions_list
-                        logger.info(f"Successfully retrieved {len(executions_list)} executions")
-                        
-                        return {
-                            "endpoint": "executions",
-                            "url": url,
-                            "status_code": response.status,
-                            "available": True,
-                            "executions": executions_data,
-                            "timestamp": datetime.now(timezone.utc).isoformat()
-                        }
-                    else:
-                        logger.error(f"Unexpected content-type: {content_type}")
-                elif response.status == 401:
-                    logger.error("Authentication failed for executions API - check API key")
-                else:
-                    logger.error(f"Executions API returned status {response.status}")
-                    error_text = await response.text()
-                    logger.debug(f"Error response: {error_text[:200]}")
-                    
         except Exception as e:
             logger.error(f"Exception accessing executions API: {e}")
         
@@ -407,20 +441,7 @@ class N8nMonitor:
                         # Get execution statistics for all workflows at once (otimizado)
                         # Se temos cache de execuções, usa ele; senão, busca uma vez
                         if executions_cache is None:
-                            # Buscar execuções uma única vez para todos os workflows
-                            executions_url = f"{self.base_url}/api/v1/executions"
-                            executions_params = {
-                                'limit': 200,
-                                'includeData': 'false'
-                            }
-                            async with self.session.get(executions_url, headers=headers, params=executions_params) as exec_response:
-                                if exec_response.status == 200:
-                                    exec_content_type = exec_response.headers.get('content-type', '')
-                                    if 'application/json' in exec_content_type:
-                                        executions_data = await exec_response.json()
-                                        executions_cache = executions_data.get('data', [])
-                                        if activation_time:
-                                            executions_cache = filter_by_activation_time(executions_cache, activation_time)
+                            executions_cache = await self._fetch_all_executions(activation_time)
                         
                         # Calcular estatísticas para cada workflow usando o cache
                         workflows_with_stats = []
@@ -826,37 +847,12 @@ class N8nMonitor:
             
             # Se não temos cache, buscar execuções
             if executions_list is None:
-                # Get all executions with more data to analyze
-                url = f"{self.base_url}/api/v1/executions"
-                params = {
-                    'limit': 500,  # Get more executions for better analysis
-                    'includeData': 'false'  # Don't include full execution data
-                }
-                
                 logger.debug("Getting workflow executions analysis data")
-                
-                headers = {'User-Agent': 'n8n-monitor-agent/1.0'}
-                if self.api_key:
-                    headers['X-N8N-API-KEY'] = self.api_key
-                elif self.username and self.password:
-                    import base64
-                    credentials = base64.b64encode(f"{self.username}:{self.password}".encode()).decode()
-                    headers['Authorization'] = f'Basic {credentials}'
-                
-                async with self.session.get(url, headers=headers, params=params) as response:
-                    if response.status == 200:
-                        content_type = response.headers.get('content-type', '')
-                        if 'application/json' in content_type:
-                            executions_data = await response.json()
-                            executions_list = executions_data.get('data', [])
-                            # Filtrar por timestamp de ativação
-                            if activation_time:
-                                original_count = len(executions_list)
-                                executions_list = filter_by_activation_time(executions_list, activation_time)
-                                logger.info(f"Filtered executions for analysis: {original_count} -> {len(executions_list)} (after activation: {activation_time.isoformat()})")
-                    else:
-                        logger.error(f"Executions API returned HTTP {response.status} for workflow analysis")
-                        executions_list = None
+                try:
+                    executions_list = await self._fetch_all_executions(activation_time)
+                except Exception as e:
+                    logger.error(f"Failed to fetch executions for workflow analysis: {e}")
+                    executions_list = None
             else:
                 logger.info(f"Reusing cached executions for workflow analysis: {len(executions_list)} executions")
 
@@ -906,37 +902,12 @@ class N8nMonitor:
             
             # Se não temos cache, buscar execuções
             if executions_list is None:
-                # Get all executions with more data to analyze failures
-                url = f"{self.base_url}/api/v1/executions"
-                params = {
-                    'limit': 500,  # Get more executions for better analysis
-                    'includeData': 'false'  # Don't include full execution data
-                }
-                
                 logger.debug("Getting failed runs analysis data")
-                
-                headers = {'User-Agent': 'n8n-monitor-agent/1.0'}
-                if self.api_key:
-                    headers['X-N8N-API-KEY'] = self.api_key
-                elif self.username and self.password:
-                    import base64
-                    credentials = base64.b64encode(f"{self.username}:{self.password}".encode()).decode()
-                    headers['Authorization'] = f'Basic {credentials}'
-                
-                async with self.session.get(url, headers=headers, params=params) as response:
-                    if response.status == 200:
-                        content_type = response.headers.get('content-type', '')
-                        if 'application/json' in content_type:
-                            executions_data = await response.json()
-                            executions_list = executions_data.get('data', [])
-                            # Filtrar por timestamp de ativação
-                            if activation_time:
-                                original_count = len(executions_list)
-                                executions_list = filter_by_activation_time(executions_list, activation_time)
-                                logger.info(f"Filtered executions for failed runs: {original_count} -> {len(executions_list)} (after activation: {activation_time.isoformat()})")
-                    else:
-                        logger.error(f"Executions API returned HTTP {response.status} for failed runs analysis")
-                        executions_list = None
+                try:
+                    executions_list = await self._fetch_all_executions(activation_time)
+                except Exception as e:
+                    logger.error(f"Failed to fetch executions for failed runs analysis: {e}")
+                    executions_list = None
             else:
                 logger.info(f"Reusing cached executions for failed runs analysis: {len(executions_list)} executions")
 
