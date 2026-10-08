@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+* **`n8n GC` went CRIT on every instance that stayed up long enough.** The
+  check compared `n8n_nodejs_gc_duration_seconds_sum` with fixed levels of
+  1 s / 5 s. That value is a Prometheus counter — the GC time accumulated
+  since the n8n process started — so it crossed both levels a few hours after
+  each restart and stayed there until the next one, whatever the load. An
+  instance spending 0.04% of its time in GC was CRIT ten hours after its
+  last restart.
+
+  The check now derives the rate from two consecutive samples and alerts on
+  the share of wall-clock time spent in GC, summed over the GC kinds. New
+  metrics `n8n_gc_time_percent` and `n8n_gc_time_percent_<kind>`, and a graph
+  stacking the kinds. The lifetime sums are still emitted under their existing
+  names, without levels.
+
+  **The ruleset parameter changed.** `GC Duration (seconds) Levels`
+  (`gc_duration_seconds`) is replaced by `Time spent in garbage collection`
+  (`gc_time_percent`, default 5%/10%). Levels on a lifetime sum cannot be
+  converted into a rate, so existing values are not migrated: rules that
+  carry the old key still load, the key is ignored, and the defaults apply
+  until a new level is set.
+
+  The first check after a discovery or an n8n restart has no previous sample
+  and leaves the service pending for one interval instead of guessing.
+
 ## 2.0.1 — 2026-08-21
 
 * **Executions were silently capped at ~250.** `/api/v1/executions` returns

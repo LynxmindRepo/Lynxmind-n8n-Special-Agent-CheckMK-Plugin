@@ -2,8 +2,8 @@
 """
 n8n GC Graphing Plugin for CheckMK
 
-Metric and graph definitions for the 4 most important GC metrics:
-total, minor, major and incremental.
+Metric and graph definitions for the time spent in GC (total and by kind)
+and for the 4 lifetime counters: total, minor, major and incremental.
 
 Note: the check plugin prefixes every metric name with 'n8n_', so:
   - 'gc_total'                                  -> 'n8n_gc_total'
@@ -25,6 +25,49 @@ from cmk.graphing.v1.metrics import (
 
 UNIT_COUNT = Unit(DecimalNotation(""), StrictPrecision(0))
 UNIT_TIME = Unit(TimeNotation())
+# No fixed precision: a healthy instance sits at a few hundredths of a percent.
+UNIT_PERCENT = Unit(DecimalNotation("%"))
+
+# Share of wall-clock time spent in GC since the previous check. This is the
+# metric the service alerts on; the sums below are lifetime counters.
+metric_n8n_gc_time_percent = Metric(
+    name="n8n_gc_time_percent",
+    title=Title("Time in GC"),
+    unit=UNIT_PERCENT,
+    color=Color.ORANGE,
+)
+
+metric_n8n_gc_time_percent_minor = Metric(
+    name="n8n_gc_time_percent_minor",
+    title=Title("Time in GC - Minor"),
+    unit=UNIT_PERCENT,
+    color=Color.GREEN,
+)
+
+metric_n8n_gc_time_percent_major = Metric(
+    name="n8n_gc_time_percent_major",
+    title=Title("Time in GC - Major"),
+    unit=UNIT_PERCENT,
+    color=Color.RED,
+)
+
+metric_n8n_gc_time_percent_incremental = Metric(
+    name="n8n_gc_time_percent_incremental",
+    title=Title("Time in GC - Incremental"),
+    unit=UNIT_PERCENT,
+    color=Color.BLUE,
+)
+
+# The kinds add up to the total, so they are stacked.
+graph_n8n_gc_time_by_kind = Graph(
+    name="n8n_gc_time_by_kind",
+    title=Title("Time in GC by kind"),
+    compound_lines=[
+        "n8n_gc_time_percent_minor",
+        "n8n_gc_time_percent_major",
+        "n8n_gc_time_percent_incremental",
+    ],
+)
 
 # 1. GC Total - Total number of garbage collections
 metric_n8n_gc_total = Metric(

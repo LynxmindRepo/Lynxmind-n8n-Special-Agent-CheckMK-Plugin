@@ -31,7 +31,7 @@ services are discovered:
 | `n8n API Endpoints` | How many of the 13 collected endpoints answered |
 | `n8n System Info` | Platform, agent version, collection timestamp |
 | `n8n Heap` | Heap used, heap fill ratio, old/new space sizes |
-| `n8n GC` | Garbage collection counts and durations by kind |
+| `n8n GC` | Share of time spent in garbage collection; lifetime counts and durations by kind |
 | `n8n Runtime` | File descriptors, event loop lag, active handles/resources |
 | `n8n Workflows` | Totals, active/inactive split, average complexity |
 | `n8n Workflow <name>` | One service per workflow: executions, success rate, failures, complexity |
@@ -40,7 +40,7 @@ services are discovered:
 | `n8n Tags` | Number of tags defined |
 | `n8n Projects`, `n8n Variables` | Only on n8n editions that expose these endpoints |
 
-74 metrics, 22 graphs and one perfometer are defined.
+78 metrics, 23 graphs and one perfometer are defined.
 
 ## Installation
 
@@ -75,7 +75,7 @@ In n8n: *Settings → n8n API → Create an API key*. The key is sent as the
 | `n8n Failed Runs` | Failures in 24h, global success rate |
 | `n8n API Endpoints` | State to report when an endpoint is unreachable |
 | `n8n Heap Monitoring` | Heap used, heap fill ratio, old/new space |
-| `n8n Garbage Collection Monitoring` | GC duration levels |
+| `n8n Garbage Collection Monitoring` | Time spent in GC, as a share of wall-clock time |
 | `n8n Runtime Monitoring` | File descriptors, event loop lag, handles, resources |
 
 Only `n8n Workflow Item Monitoring` takes a service item (the workflow name);
@@ -93,6 +93,14 @@ every other ruleset applies per host.
   prom-client does not export `nodejs_heap_size_limit_bytes`, so the ratio
   cannot be rebased onto the real ceiling. The absolute `heap_used` is what
   alerts by default.
+* **`n8n GC` alerts on a rate, not on the GC duration itself.**
+  `nodejs_gc_duration_seconds_sum` is a counter: the GC time accumulated since
+  the n8n process started. It only grows, so its absolute value reflects the
+  uptime rather than the load. The check compares two consecutive samples and
+  alerts on the share of wall-clock time spent in GC in between (5%/10% by
+  default). The lifetime sums are still graphed, without levels. The first
+  check after a discovery or an n8n restart has nothing to compare against,
+  so the service stays pending for one interval.
 * **The API key is passed on the command line.** The agent has no password
   store support, so `Secret.unsafe()` is used. The key is therefore visible in
   the process table of the monitoring site.
